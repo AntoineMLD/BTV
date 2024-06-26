@@ -1,0 +1,8 @@
+train: /home/utilisateur/Documents/BTV/dataset/images/train
+val: /home/utilisateur/Documents/BTV/dataset/images/val
+
+# Nombre de classes
+nc: 1
+
+# Noms des classes
+names: ['pool']
