@@ -61,5 +61,3 @@ Pour ce brief, vous devrez fournir :
 - [Streamlit](https://streamlit.io/)
 
 ---
-
-Nous vous souhaitons bonne chance dans la réalisation de cette preuve de concept et espérons que cette expérience enrichira vos compétences en vision par ordinateur et en développement de modèles de détection d'objets.
