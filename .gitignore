@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.so
 *.ipynb_checkpoints
-
+dataset btv
 # Environnements virtuels
 venv/
 env/

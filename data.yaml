@@ -1,0 +1,4 @@
+train : C:\Users\antoi\Documents\Projets\BTV\BTV\data\train\images
+val : C:\Users\antoi\Documents\Projets\BTV\BTV\data\test\images
+nc: 1 # nombre de classes 
+names: ['pool'] 

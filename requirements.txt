@@ -1,0 +1,6 @@
+ultralytics
+opencv-python
+matplotlib
+gradio
+azure-maps-search --pre
+python-dotenv
