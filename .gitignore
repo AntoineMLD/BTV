@@ -4,6 +4,8 @@ __pycache__/
 *.so
 *.ipynb_checkpoints
 
+swim-2/
+
 # Environnements virtuels
 venv/
 env/
