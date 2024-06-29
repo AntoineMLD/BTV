@@ -1,0 +1,12 @@
+names:
+- pool
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: pool-detection-4ltyx
+  url: https://universe.roboflow.com/project/pool-detection-4ltyx/dataset/3
+  version: 3
+  workspace: project
+test: /root/BTV/pool-detection-3/test/images
+train: /root/BTV/pool-detection-3/train/images
+val: /root/BTV/pool-detection-3/valid/images
