@@ -57,7 +57,7 @@ html_content = """
                 view: 'Auto',
                 authOptions: {
                     authType: 'subscriptionKey',
-                    subscriptionKey: 'YOUR_AZURE_MAPS_KEY'
+                    subscriptionKey: os.getenv('AZURE_MAPS_ACCOUNT_KEY')
                 }
             });
 
