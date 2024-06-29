@@ -7,6 +7,6 @@ roboflow:
   url: https://universe.roboflow.com/project/pool-detection-4ltyx/dataset/3
   version: 3
   workspace: project
-test: ../test/images
-train: pool-detection-3/train/images
-val: pool-detection-3/valid/images
+test: /root/BTV/pool-detection-3/test/images
+train: /root/BTV/pool-detection-3/train/images
+val: /root/BTV/pool-detection-3/valid/images
