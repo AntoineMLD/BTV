@@ -6,24 +6,18 @@ import base64
 import os
 from dotenv import load_dotenv
 import logging
-import torch
-import torchvision
 import traceback
 import time
 import psutil
+import shutil
+
 
 load_dotenv()
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Afficher les versions et informations système
-app.logger.info(f"PyTorch version: {torch.__version__}")
-app.logger.info(f"torchvision version: {torchvision.__version__}")
-app.logger.info(f"CUDA available: {torch.cuda.is_available()}")
-app.logger.info(f"CUDA version: {torch.version.cuda}")
-app.logger.info(f"Nombre de CPU: {psutil.cpu_count()}")
-app.logger.info(f"Mémoire totale: {psutil.virtual_memory().total / (1024 * 1024 * 1024):.2f} GB")
+
 
 # Définir le chemin de sauvegarde
 SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'detection_results')
@@ -54,14 +48,7 @@ app.logger.info(f"Classes du modèle : {model.names}")
 
 AZURE_MAPS_ACCOUNT_KEY = os.getenv('AZURE_MAPS_ACCOUNT_KEY')
 
-# Test de détection au démarrage
-test_image_path = "pool_test.jpg"
-if os.path.exists(test_image_path):
-    test_img = cv2.imread(test_image_path)
-    test_results = model.predict(test_img, device=device, **save_options)
-    app.logger.info(f"Test de détection : {len(test_results[0].boxes)} piscines détectées")
-else:
-    app.logger.warning(f"L'image de test {test_image_path} n'existe pas.")
+
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -119,6 +106,19 @@ def detect():
         })
     except Exception as e:
         app.logger.error(f"Erreur lors de la détection : {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify(error=str(e)), 500
+    
+@app.route('/delete_images', methods=['POST'])
+def delete_images():
+    try:
+        app.logger.info("Suppression des images sauvegardées")
+        if os.path.exists(SAVE_DIR):
+            shutil.rmtree(SAVE_DIR)
+            os.makedirs(SAVE_DIR)
+        return jsonify(success=True)
+    except Exception as e:
+        app.logger.error(f"Erreur lors de la suppression des images : {str(e)}")
         app.logger.error(traceback.format_exc())
         return jsonify(error=str(e)), 500
 

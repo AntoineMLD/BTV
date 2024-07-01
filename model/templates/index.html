@@ -61,6 +61,7 @@
     <div id="map-container"></div>
     <div id="controls">
         <button id="detectBtn" disabled>Detect Pools</button>
+        <button id="deleteBtn">Delete Saved Images</button>
     </div>
     <div id="status">Status: Idle</div>
     <div id="pool_count">Pools detected: 0</div>
@@ -169,6 +170,27 @@
                 }
             });
         }
+        function deleteSavedImages() {
+            $('#status').text('Status: Deleting saved images...');
+            $.ajax({
+                url: '/delete_images',
+                type: 'POST',
+                success: function(data) {
+                    if (data.error) {
+                        console.error("Erreur côté serveur :", data.error);
+                        $('#status').text('Status: Error deleting images');
+                        return;
+                    }
+                    console.log("Réponse reçue :", data);
+                    $('#status').text('Status: Images deleted successfully');
+                },
+                error: function(jqXHR, textStatus, errorThrown) {
+                    console.error("Erreur lors de la suppression :", textStatus, errorThrown);
+                    console.error("Réponse du serveur :", jqXHR.responseText);
+                    $('#status').text('Status: Error occurred during deletion');
+                }
+            });
+        }
 
         $(document).ready(function() {
             initMap();
@@ -181,7 +203,13 @@
                     captureMap();
                 }, 2000);
             });
+
+            $('#deleteBtn').click(function() {
+                deleteSavedImages();
+            });
         });
     </script>
+</body>
+</html>
 </body>
 </html>
