@@ -97,10 +97,13 @@ def run(
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
 ):
-    source = str(source)
+    # Modification pour prendre en charge le flux UDP au lieu de la webcam
+    source = "udp://127.0.0.1:1234"  # Remplacez la source par l'adresse UDP souhaitée
+
+    # Le reste du code reste inchangé
     save_img = not nosave and not source.endswith(".txt")  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
-    is_url = source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
+    is_url = source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://", "udp://"))  # Ajout de "udp://" à la vérification
     webcam = source.isnumeric() or source.endswith(".streams") or (is_url and not is_file)
     screenshot = source.lower().startswith("screen")
     if is_url and is_file:
@@ -118,7 +121,7 @@ def run(
 
     # Dataloader
     bs = 1  # batch_size
-    if webcam:
+    if webcam or is_url:  # Modification pour inclure tous les types d'URL, y compris UDP
         view_img = check_imshow(warn=True)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         bs = len(dataset)
@@ -127,6 +130,8 @@ def run(
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
     vid_path, vid_writer = [None] * bs, [None] * bs
+
+# Le reste du code pour l'exécution de l'inférence reste le même
 
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
@@ -267,8 +272,10 @@ def run(
 def parse_opt():
     """Parses command-line arguments for YOLOv5 detection, setting inference options and model configurations."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "best.pt", help="model path or triton URL")
-    parser.add_argument("--source", type=str, default=ROOT / "/home/utilisateur/Documents/dev_ia/BTV/pool-detection-3/test/images", help="file/dir/URL/glob/screen/0(webcam)")
+    parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "/home/utilisateur/Documents/dev_ia/BTV/yolov5/yolov5s.pt", help="model path or triton URL")
+    # parser.add_argument("--source", type=str, default=ROOT / " ", help="file/dir/URL/glob/screen/0(webcam) ")
+    parser.add_argument("--source", type=str, default="", help="file/dir/URL/glob/screen/0(webcam) or UDP URL")
+
     parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="(optional) dataset.yaml path")
     parser.add_argument("--imgsz", "--img", "--img-size", nargs="+", type=int, default=[640], help="inference size h,w")
     parser.add_argument("--conf-thres", type=float, default=0.25, help="confidence threshold")
