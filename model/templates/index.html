@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Pool Detection on Azure Maps</title>
+    <link rel="icon" href="data:,">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src='https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js'></script>
+    <script src="{{ url_for('static', filename='azure-maps-image-exporter.min.js') }}"></script>
+    <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.css" type="text/css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            color: #333;
+        }
+        #map-container {
+            width: 800px;
+            height: 600px;
+            margin: 20px auto;
+            border: 2px solid #333;
+        }
+        #controls {
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin: 0 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status, #pool_count {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        #annotated-image {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>YOLO Pool Detection on Azure Maps</h1>
+    <div id="map-container"></div>
+    <div id="controls">
+        <button id="detectBtn" disabled>Detect Pools</button>
+    </div>
+    <div id="status">Status: Idle</div>
+    <div id="pool_count">Pools detected: 0</div>
+    <img id="annotated-image" src="" alt="Annotated Image" style="display: none;">
+    
+    <script>
+        var map;
+
+        function initMap() {
+            map = new atlas.Map('map-container', {
+                center: [3.02387704, 42.72425849],
+                zoom: 18,
+                view: 'Auto',
+                style: 'satellite',
+                preserveDrawingBuffer: true,
+                authOptions: {
+                    authType: 'subscriptionKey',
+                    subscriptionKey: '{{ account_key }}'
+                }
+            });
+
+            map.events.add('ready', function() {
+                console.log('Map is ready');
+                $('#detectBtn').prop('disabled', false);
+            });
+        }
+
+        function captureMap() {
+            $('#status').text('Status: Capturing image...');
+            
+            atlas.MapImageExporter.getImage(map).then((mapImg) => {
+                console.log("Image capturée");
+                var canvas = document.createElement('canvas');
+                canvas.width = mapImg.width;
+                canvas.height = mapImg.height;
+                var context = canvas.getContext('2d');
+                context.drawImage(mapImg, 0, 0);
+                var base64Image = canvas.toDataURL('image/jpeg');
+                sendImageForDetection(base64Image);
+            }).catch((error) => {
+                console.error("Erreur lors de la capture de l'image:", error);
+                $('#status').text('Status: Error capturing image');
+            });
+        }
+
+        function sendImageForDetection(base64Image) {
+            $('#status').text('Status: Sending image for detection...');
+            $.ajax({
+                url: '/detect',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({image: base64Image}),
+                success: function(data) {
+                    if (data.error) {
+                        console.error("Erreur côté serveur :", data.error);
+                        $('#status').text('Status: Error during detection');
+                        return;
+                    }
+                    console.log("Réponse reçue :", data);
+                    $('#pool_count').text('Pools detected: ' + data.pool_count);
+                    $('#status').text('Status: Detection completed');
+                    
+                    // Afficher l'image annotée
+                    $('#annotated-image').attr('src', data.image).show();
+                    
+                    var img = new Image();
+                    img.onload = function() {
+                        try {
+                            console.log("Image annotée chargée");
+                            if (map && map.layers && typeof map.layers.getLayerById === 'function') {
+                                if (map.layers.getLayerById('annotatedLayer')) {
+                                    map.layers.remove('annotatedLayer');
+                                }
+                            }
+                            if (map && map.images && typeof map.images.getImageById === 'function') {
+                                if (map.images.getImageById('annotated')) {
+                                    map.images.remove('annotated');
+                                }
+                                map.images.add('annotated', img);
+                            }
+                            if (map && map.layers && typeof map.layers.add === 'function') {
+                                map.layers.add(new atlas.layer.ImageLayer({
+                                    id: 'annotatedLayer',
+                                    source: new atlas.source.ImageSource({
+                                        image: 'annotated',
+                                        coordinates: [
+                                            [map.getBounds().getWest(), map.getBounds().getNorth()],
+                                            [map.getBounds().getEast(), map.getBounds().getNorth()],
+                                            [map.getBounds().getEast(), map.getBounds().getSouth()],
+                                            [map.getBounds().getWest(), map.getBounds().getSouth()]
+                                        ]
+                                    }),
+                                    opacity: 0.7
+                                }));
+                            }
+                        } catch (error) {
+                            console.error("Erreur lors de l'ajout de l'image annotée:", error);
+                        }
+                    };
+                    img.src = data.image;
+                },
+                error: function(jqXHR, textStatus, errorThrown) {
+                    console.error("Erreur lors de la détection :", textStatus, errorThrown);
+                    console.error("Réponse du serveur :", jqXHR.responseText);
+                    $('#status').text('Status: Error occurred during detection');
+                }
+            });
+        }
+
+        $(document).ready(function() {
+            initMap();
+
+            $('#detectBtn').click(function() {
+                $('#status').text('Status: Preparing for detection...');
+                console.log("Préparation de la capture d'image");
+                
+                setTimeout(function() {
+                    captureMap();
+                }, 2000);
+            });
+        });
+    </script>
+</body>
+</html>

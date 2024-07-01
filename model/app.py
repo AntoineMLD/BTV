@@ -1,110 +1,133 @@
-import streamlit as st
-import requests
-import torch
-import numpy as np
-from PIL import Image
-from io import BytesIO
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from flask import Flask, render_template, request, jsonify
 from ultralytics import YOLO
 import cv2
+import numpy as np
 import base64
+import os
+from dotenv import load_dotenv
+import logging
+import torch
+import torchvision
+import traceback
+import time
+import psutil
 
-# Fonction pour charger et configurer le modèle YOLO
-@st.cache_resource
-def load_model():
-    model = YOLO('best.pt')
-    model.to("cpu")  # Forcer l'utilisation du CPU
-    return model
+load_dotenv()
 
-model = load_model()
+app = Flask(__name__, static_folder='static', template_folder='templates')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Fonction pour dessiner les prédictions sur l'image
-def draw_predictions(image, predictions):
-    for prediction in predictions:
-        bbox = prediction['bbox']
-        x1, y1, x2, y2 = map(int, bbox)
-        conf = prediction['confidence']
-        cls = prediction['class']
-        label = f"{cls} {conf:.2f}"
-        image = cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        image = cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-    return image
+# Afficher les versions et informations système
+app.logger.info(f"PyTorch version: {torch.__version__}")
+app.logger.info(f"torchvision version: {torchvision.__version__}")
+app.logger.info(f"CUDA available: {torch.cuda.is_available()}")
+app.logger.info(f"CUDA version: {torch.version.cuda}")
+app.logger.info(f"Nombre de CPU: {psutil.cpu_count()}")
+app.logger.info(f"Mémoire totale: {psutil.virtual_memory().total / (1024 * 1024 * 1024):.2f} GB")
 
-# Fonction pour redimensionner l'image
-def resize_image(image, size=(640, 640)):
-    return image.resize(size)
+# Définir le chemin de sauvegarde
+SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'detection_results')
+os.makedirs(SAVE_DIR, exist_ok=True)
+app.logger.info(f"Chemin complet du répertoire de sauvegarde : {os.path.abspath(SAVE_DIR)}")
 
-# Fonction de prédiction locale
-def predict_locally(image):
-    resized_image = resize_image(image)
-    image_tensor = torch.tensor(np.array(resized_image)).permute(2, 0, 1).float().unsqueeze(0) / 255.0
-    with torch.no_grad():
-        results = model(image_tensor)
+# Charger le modèle YOLO
+model_path = "best.pt"
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Le fichier modèle {model_path} n'existe pas.")
+model = YOLO(model_path)
 
-    predictions = []
-    for r in results:
-        boxes = r.boxes
-        for box in boxes:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            conf = box.conf.item()
-            cls = box.cls.item()
-            predictions.append({
-                'bbox': [float(x1), float(y1), float(x2), float(y2)],
-                'confidence': float(conf),
-                'class': int(cls)
-            })
-    return predictions
+# Forcer l'utilisation du CPU
+device = "cpu"
+model.to(device)
 
-# Configuration des tentatives de nouvelle connexion pour les requêtes HTTP
-def requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500, 502, 504), session=None):
-    session = session or requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+# Configurer les options de sauvegarde
+save_options = {
+    'project': SAVE_DIR,
+    'name': 'detect',
+    'save': True,
+    'save_txt': True,
+    'save_conf': True,
+}
 
-# Interface utilisateur Streamlit
-st.title("Détection d'objets avec YOLO")
-st.write("Téléchargez une image et obtenez les prédictions de détection d'objets.")
+app.logger.info(f"Utilisation du device: {device}")
+app.logger.info(f"Classes du modèle : {model.names}")
 
-uploaded_file = st.file_uploader("Choisissez une image...", type=["jpg", "jpeg", "png"])
+AZURE_MAPS_ACCOUNT_KEY = os.getenv('AZURE_MAPS_ACCOUNT_KEY')
 
-if uploaded_file is not None:
-    static_image = Image.open(uploaded_file).convert("RGB")
-    st.image(static_image, caption='Image statique téléchargée.', use_column_width=True)
+# Test de détection au démarrage
+test_image_path = "pool_test.jpg"
+if os.path.exists(test_image_path):
+    test_img = cv2.imread(test_image_path)
+    test_results = model.predict(test_img, device=device, **save_options)
+    app.logger.info(f"Test de détection : {len(test_results[0].boxes)} piscines détectées")
+else:
+    app.logger.warning(f"L'image de test {test_image_path} n'existe pas.")
 
-    # Convertir l'image en chaîne de caractères pour l'envoi
-    buffered = BytesIO()
-    static_image.save(buffered, format="JPEG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.error("Une erreur non gérée s'est produite : %s", traceback.format_exc())
+    return jsonify(error=str(e)), 500
 
-    # Tentative de prédiction via l'API Flask
+@app.route('/')
+def index():
+    app.logger.info("Page d'accueil demandée")
+    return render_template('index.html', account_key=AZURE_MAPS_ACCOUNT_KEY)
+
+@app.route('/detect', methods=['POST'])
+def detect():
     try:
-        response = requests_retry_session().post('http://127.0.0.1:5000/predict', json={'image': img_str}, timeout=60)
-        if response.status_code == 200:
-            predictions = response.json()['predictions']
-            st.write("Prédictions pour l'image statique (API) :")
-            st.write(predictions)
+        app.logger.info("Début de la détection")
+        data = request.json
+        image_data = base64.b64decode(data['image'].split(',')[1])
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        app.logger.info(f"Taille de l'image reçue : {img.shape}")
+        app.logger.info(f"Utilisation mémoire actuelle : {psutil.virtual_memory().percent}%")
+        app.logger.info(f"Utilisation CPU actuelle : {psutil.cpu_percent()}%")
 
-            image_with_predictions = draw_predictions(np.array(static_image), predictions)
-            st.image(image_with_predictions, caption='Image statique avec détections (API)', use_column_width=True)
+        # Sauvegarder l'image capturée pour vérification
+        capture_path = os.path.join(SAVE_DIR, f'capture_{int(time.time())}.jpg')
+        cv2.imwrite(capture_path, img)
+        app.logger.info(f"Image capturée sauvegardée sous : {capture_path}")
+
+        results = model.predict(img, device=device, conf=0.25, iou=0.45, **save_options)
+        
+        app.logger.info(f"Résultats bruts : {results}")
+        
+        pool_count = 0
+        if hasattr(results[0], 'boxes') and results[0].boxes is not None:
+            pool_count = len(results[0].boxes)
+            app.logger.info(f"Nombre de piscines détectées : {pool_count}")
+            annotated_image = results[0].plot()
+            
+            # Sauvegarder l'image annotée
+            result_path = os.path.join(SAVE_DIR, f'result_{int(time.time())}.jpg')
+            cv2.imwrite(result_path, annotated_image)
+            app.logger.info(f"Image résultat sauvegardée sous : {result_path}")
+            
+            _, buffer = cv2.imencode('.jpg', annotated_image)
+            img_str = base64.b64encode(buffer).decode('utf-8')
         else:
-            st.error(f"Erreur lors de la prédiction sur l'image statique: {response.text}")
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erreur de connexion à l'API: {str(e)}")
-        st.write("Tentative de prédiction locale...")
-        predictions = predict_locally(static_image)
+            app.logger.info("Aucune piscine détectée")
+            img_str = data['image']
 
-        st.write("Prédictions pour l'image statique (locale) :")
-        st.write(predictions)
+        app.logger.info("Détection terminée avec succès")
+        return jsonify({
+            'pool_count': pool_count,
+            'image': f"data:image/jpeg;base64,{img_str}"
+        })
+    except Exception as e:
+        app.logger.error(f"Erreur lors de la détection : {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify(error=str(e)), 500
 
-        image_with_predictions = draw_predictions(np.array(static_image), predictions)
-        st.image(image_with_predictions, caption='Image statique avec détections (locale)', use_column_width=True)
+if __name__ == '__main__':
+    app.logger.info("Juste avant de lancer l'application")
+    try:
+        app.logger.info("Tentative de démarrage de l'application")
+        app.run(debug=False, port=5001)
+    except Exception as e:
+        app.logger.error(f"Erreur lors du démarrage de l'application: {str(e)}")
+        app.logger.error(traceback.format_exc())
+    

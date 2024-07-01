@@ -1,69 +1,45 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import StreamingResponse
 from ultralytics import YOLO
 import cv2
 import numpy as np
 from io import BytesIO
-import base64
-import logging
+import os
 
-app = Flask(__name__)
-CORS(app)
-logging.basicConfig(level=logging.INFO)
+app = FastAPI()
 
-print("Chargement du modèle...")
-model = YOLO('best.pt')
-model.to("cpu")
-print("Modèle chargé avec succès")
+# Charger le modèle YOLO
+model_path = "best.pt"
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Erreur: le fichier modèle {model_path} n'existe pas.")
+else:
+    model = YOLO(model_path)
+    model.to("cpu")
 
-@app.route('/', methods=['GET'])
-def home():
-    app.logger.info("Route principale accédée")
-    return "API is running", 200
-
-@app.route('/predict', methods=['POST'])
-def predict():
-    app.logger.info("Requête de prédiction reçue")
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
     try:
-        data = request.json
-        if not data or 'image' not in data:
-            raise ValueError("Données d'image manquantes dans la requête")
-        
-        app.logger.info(f"Données reçues : {len(data['image'])} caractères")
-        
-        image_data = base64.b64decode(data['image'])
-        nparr = np.frombuffer(image_data, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if image is None:
-            raise ValueError("Impossible de décoder l'image")
-        
-        results = model(image)
-        
-        predictions = []
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                conf = box.conf.item()
-                cls = box.cls.item()
-                predictions.append({
-                    'bbox': [float(x1), float(y1), float(x2), float(y2)],
-                    'confidence': float(conf),
-                    'class': int(cls)
-                })
-        
-        app.logger.info(f"Prédiction terminée. Nombre de prédictions: {len(predictions)}")
-        return jsonify({"predictions": predictions})
-    except Exception as e:
-        app.logger.error(f"Erreur lors de la prédiction : {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        # Lire l'image depuis le contenu binaire
+        image_bytes = await file.read()
+        image_np = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
 
-@app.route('/test', methods=['GET'])
-def test():
-    app.logger.info("Route de test accédée")
-    return jsonify({"message": "Test successful"}), 200
+        # Faire une prédiction sur l'image
+        results = model.predict(image, device="cpu")
+
+        # Vérifier que les résultats contiennent des boîtes englobantes
+        if hasattr(results[0], 'boxes') and results[0].boxes is not None:
+            # Convertir l'image avec les détections en bytes
+            annotated_img_bytes = cv2.imencode('.jpg', results[0].plot())[1].tobytes()
+
+            # Renvoyer l'image annotée en réponse
+            return StreamingResponse(BytesIO(annotated_img_bytes), media_type="image/jpeg")
+        else:
+            raise HTTPException(status_code=500, detail="Aucune boîte englobante détectée dans les résultats.")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == '__main__':
-    app.logger.info("Démarrage du serveur API sur http://0.0.0.0:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
