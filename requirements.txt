@@ -2,3 +2,4 @@ ultralytics
 matplotlib
 numpy
 opencv-python
+streamlit
