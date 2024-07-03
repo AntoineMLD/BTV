@@ -17,9 +17,7 @@ ENV/
 .env.*.local
 .vscode/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
+
 
 # Model weights and training data
 *.h5
