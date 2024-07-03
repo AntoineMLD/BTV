@@ -33,7 +33,7 @@ def predict_and_draw_boxes(image_path):
 
 # Interface utilisateur Streamlit
 st.title("Démonstration du modèle de Computer Vision Pool Detection")
-# st.image("images/logo.png", width=200)  # Insérer l'URL de ton logo ici
+st.image("images/logo.png", width=200)  # Insérer l'URL de ton logo ici
 st.write("Téléchargez une image pour obtenir une prédiction de piscines de qualité")
 
 # Upload d'image
